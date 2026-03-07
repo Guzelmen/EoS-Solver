@@ -170,7 +170,6 @@ def predict_phi(
 
     inputs_t = torch.from_numpy(inputs_np).to(device)
 
-    with torch.no_grad():
-        phi_t = model(inputs_t)
+    phi_t = model(inputs_t)
 
     return phi_t.cpu().numpy().reshape(-1)
