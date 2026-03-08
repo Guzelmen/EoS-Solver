@@ -37,6 +37,7 @@ HBAR       = 1.054571817e-34          # Reduced Planck constant [J·s]
 E_CHARGE   = 1.602176634e-19          # Elementary charge [C]
 EPS0       = 8.8541878128e-12         # Vacuum permittivity [F/m]
 KC         = E_CHARGE**2 / (4 * math.pi * EPS0)  # Coulomb constant ke^2 [J·m]
+M_PROTON   = 1.67262192369e-27        # proton mass [kg]
 
 # Density of states prefactor c1 = (1/2pi^2) * (2*m_e/hbar^2)^(3/2)  [m^-3 J^-3/2]
 C1         = (1.0 / (2.0 * math.pi**2)) * (2.0 * M_E / HBAR**2)**1.5
@@ -160,3 +161,56 @@ def compute_xi(phi: np.ndarray, x: np.ndarray,
         xi: shape [n_x], always > 0
     """
     return gamma * phi / (lam * x)
+
+
+# for density stuff
+
+# ---------------------------------------------------------------------------
+# Density <-> r0 conversions
+# ---------------------------------------------------------------------------
+# Note: A (atomic mass number) appears ONLY here, not in the pressure formula.
+# Pressure is a purely electronic quantity; A sets the ion mass that converts
+# cell volume to mass density for the x-axis of P vs rho plots.
+
+
+def r0_from_alpha(alpha_1: float) -> float:
+    """Cell radius from dimensionless alpha_1. r0_1 = alpha_1 * b  [m]"""
+    return alpha_1 * B_M
+
+
+
+def r0_from_density(rho_gcc: float, A: float) -> float:
+    """
+    Compute cell radius r0 from mass density.
+
+    Invert rho = A * m_p / v,  v = (4/3)*pi*r0^3:
+        r0 = ( A * m_p / ( (4/3)*pi*rho ) )^(1/3)
+
+    Args:
+        rho_gcc: mass density [g/cm^3]
+        A:       atomic mass number (e.g. 27 for Al)
+
+    Returns:
+        r0: cell radius [m]
+    """
+    rho_si = rho_gcc * 1e3                          # [kg/m^3]
+    volume = A * M_PROTON / rho_si                  # [m^3/atom]
+    return (volume * 3.0 / (4.0 * math.pi))**(1.0 / 3.0)
+
+
+def density_from_r0(r0_m: float, A: float) -> float:
+    """
+    Compute mass density from cell radius.
+
+    rho = A * m_p / ( (4/3)*pi*r0^3 )
+
+    Args:
+        r0_m: cell radius [m]
+        A:    atomic mass number
+
+    Returns:
+        rho: mass density [g/cm^3]
+    """
+    volume = (4.0 / 3.0) * math.pi * r0_m**3       # [m^3]
+    rho_si = A * M_PROTON / volume                  # [kg/m^3]
+    return rho_si * 1e-3                            # [g/cm^3]

@@ -32,6 +32,7 @@ import math
 import torch
 
 from ..fd_integrals import fermi_dirac_three_half, C0_M
+from ..inputs import KC, KEV_TO_J
 
 # ---------------------------------------------------------------------------
 # Pressure prefactor
@@ -40,7 +41,9 @@ from ..fd_integrals import fermi_dirac_three_half, C0_M
 # C_PRESSURE = 1e6 / (6 * pi * C0_M^2)
 # Units: Pa keV^{-5/2}
 # P [Pa] = C_PRESSURE * T_1_keV^(5/2) * F_{3/2}(xi_1)
-C_PRESSURE = 1e6 / (6.0 * math.pi * C0_M**2)
+C_PRESSURE_OLD = 1e6 / (6.0 * math.pi * C0_M**2)
+
+C_PRESSURE = KEV_TO_J**2 / (6.0 * math.pi * KC * C0_M**2)
 
 
 # ---------------------------------------------------------------------------

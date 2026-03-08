@@ -3,12 +3,12 @@ Model loading and phi(x) inference for the TF-EoS solver.
 
 Mirrors exactly how eval_residual_phase4.py loads the PINN:
   1. fetch_config_from_wandb()  ->  params (SimpleNamespace from wandb run config)
-  2. find_latest_state_path()   ->  path to latest .pt in saving_weights/<run_name>/
+  2. find_state_path_for_epoch() or find_latest_state_path()  ->  checkpoint path
   3. build_model()              ->  instantiated model with weights loaded
 
-All three functions are imported directly from the PINN repo (eval_residual_phase2
-and color_map modules), so the loading logic stays in sync with the training repo
-automatically.
+The epoch to load is controlled by cfg['epoch']:
+  - None (or absent): loads the latest checkpoint via find_latest_state_path()
+  - integer:          loads saving_weights/<run_name>/weights_epoch_<epoch>
 
 The PINN repo and MinimalTFFDintPy are added to sys.path here — this is the only
 place in the EoS repo that knows about the sibling repo layout.
@@ -20,6 +20,8 @@ import numpy as np
 import torch
 from pathlib import Path
 from types import SimpleNamespace
+
+from src.copy_funcs_minipinn import find_latest_state_path, fetch_config_from_wandb, build_model
 
 
 # ---------------------------------------------------------------------------
@@ -48,44 +50,74 @@ def load_eos_config(config_path: str = None) -> dict:
 # sys.path setup
 # ---------------------------------------------------------------------------
 
-def _add_repos_to_path(pinn_repo_path: str, fdint_repo_path: str):
+def _add_repos_to_path(fdint_repo_path: str):
     """
-    Add the PINN repo and MinimalTFFDintPy to sys.path.
+    Add the MinimalTFFDintPy to sys.path.
     Safe to call multiple times.
     """
-    for p in [pinn_repo_path, fdint_repo_path]:
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    p = fdint_repo_path
+    if p not in sys.path:
+        sys.path.append(p)
 
 
 # ---------------------------------------------------------------------------
-# PINN loading  (mirrors eval_residual_phase4.py main())
+# Checkpoint path resolution
+# ---------------------------------------------------------------------------
+
+def find_state_path_for_epoch(pinn_repo_path: str, run_name: str, epoch: int) -> Path:
+    """
+    Return the checkpoint path for a specific training epoch.
+
+    Mirrors the pattern used in the PINN repo's eval_interp_range.py:
+        saving_weights/<run_name>/weights_epoch_<epoch>
+
+    Args:
+        pinn_repo_path: absolute path to the miniPINN repo root
+        run_name:       subfolder name inside saving_weights/
+        epoch:          integer epoch number
+
+    Returns:
+        Path to the checkpoint file
+
+    Raises:
+        FileNotFoundError if the checkpoint does not exist
+    """
+    weights_dir = Path(pinn_repo_path) / "saving_weights" / run_name
+    p = weights_dir / f"weights_epoch_{epoch}"
+    if not p.exists():
+        raise FileNotFoundError(
+            f"Checkpoint not found: {p}\n"
+            f"Available epochs in {weights_dir}:\n"
+            + "\n".join(str(f.name) for f in sorted(weights_dir.glob("weights_epoch_*")))
+        )
+    return p
+
+
+# ---------------------------------------------------------------------------
+# PINN loading
 # ---------------------------------------------------------------------------
 
 def load_pinn(cfg: dict = None, config_path: str = None, device: str = None):
     """
-    Load the trained Phase 4 PINN using the same pattern as eval_residual_phase4:
-      - fetch config from wandb API
-      - find latest checkpoint in saving_weights/<run_name>/
-      - build and load model
+    Load the trained Phase 4 PINN.
+
+    Epoch selection (from cfg['epoch']):
+      - None / not present: loads the latest checkpoint (find_latest_state_path)
+      - integer:            loads weights_epoch_<epoch> from saving_weights/<run_name>/
 
     Args:
         cfg:         pre-loaded EoS config dict (if None, loads default.yaml)
         config_path: path to EoS config yaml (used only if cfg is None)
-        device:      override device string (e.g. "cuda:0"). If None, uses cfg['device'].
+        device:      override device string. If None, uses cfg['device'].
 
     Returns:
-        model:  loaded PINN in eval mode, gradients disabled
-        params: SimpleNamespace of the wandb run config (mirrors eval script)
+        model:  loaded PINN in eval mode, autograd enabled
+        params: SimpleNamespace of the wandb run config
     """
     if cfg is None:
         cfg = load_eos_config(config_path)
 
-    _add_repos_to_path(cfg["pinn_repo_path"], cfg["fdint_repo_path"])
-
-    # Import directly from PINN repo modules, exactly as eval_residual_phase4 does
-    from src.eval_residual_phase2 import fetch_config_from_wandb, build_model
-    from src.color_map import find_latest_state_path
+    _add_repos_to_path(cfg["fdint_repo_path"])
 
     # Resolve device
     target_device = device or cfg.get("device", "cpu")
@@ -93,12 +125,11 @@ def load_pinn(cfg: dict = None, config_path: str = None, device: str = None):
         target_device = "cuda" if torch.cuda.is_available() else "cpu"
     torch_device = torch.device(target_device)
 
-    # 1. Fetch config from wandb
+    # 1. Fetch wandb run config
     wandb_config = fetch_config_from_wandb(cfg["wandb_run_path"])
     params = SimpleNamespace(**wandb_config)
     params.device = torch_device
 
-    # Ensure debug mode is off for inference
     if not hasattr(params, "debug_mode"):
         params.debug_mode = False
 
@@ -107,21 +138,31 @@ def load_pinn(cfg: dict = None, config_path: str = None, device: str = None):
         if hasattr(params, field):
             setattr(params, field, cast(getattr(params, field)))
 
-    # 2. Find latest checkpoint
-    state_path = find_latest_state_path(cfg["run_name"])
-    print(f"Loading checkpoint: {state_path}")
+    # 2. Resolve checkpoint path
+    epoch = cfg.get("epoch", None)
+    if epoch is not None:
+        state_path = find_state_path_for_epoch(
+            cfg["pinn_repo_path"], cfg["run_name"], int(epoch)
+        )
+        print(f"Loading checkpoint at epoch {epoch}: {state_path}")
+    else:
+        state_path = find_latest_state_path(cfg["pinn_repo_path"], cfg["run_name"])
+        print(f"Loading latest checkpoint: {state_path}")
+
+    # 3. Load weights and build model
     state_dict = torch.load(state_path, map_location=torch_device)
+    model = build_model(cfg["pinn_repo_path"], params, state_dict, torch_device)
 
-    # 3. Build model with weights
-    model = build_model(params, state_dict, torch_device)
-
-    torch.set_grad_enabled(False)
+    # Gradients must stay enabled — the hard-constraint BC transform in the
+    # model's forward pass uses first_deriv_auto (autograd), so torch.no_grad()
+    # would break inference.
+    torch.set_grad_enabled(True)
 
     return model, params
 
 
 # ---------------------------------------------------------------------------
-# x grid and phi(x) inference
+# x grid
 # ---------------------------------------------------------------------------
 
 def build_x_grid(n_x: int, x_min: float) -> np.ndarray:
@@ -132,44 +173,48 @@ def build_x_grid(n_x: int, x_min: float) -> np.ndarray:
 
     Args:
         n_x:   number of grid points
-        x_min: smallest x value
+        x_min: smallest x value (avoid true zero, xi -> inf as x -> 0)
 
     Returns:
         x: 1D numpy array, shape [n_x]
     """
-    return np.logspace(np.log10(x_min), 0.0, n_x)
+    return np.logspace(np.log10(x_min), np.log10(1.0), n_x)
 
+
+# ---------------------------------------------------------------------------
+# phi(x) inference
+# ---------------------------------------------------------------------------
 
 def predict_phi(
     alpha_1: float,
     T_1_keV: float,
     x_grid: np.ndarray,
     model,
-    device: str = "cpu",
+    device,
 ) -> np.ndarray:
     """
-    Evaluate phi(x; alpha_1, T_1) on the x grid.
+    Evaluate phi(x; alpha_1, T_1) on the x grid using the PINN.
 
-    Builds the [x, alpha, T] input tensor expected by the Phase 4 model
-    and runs a forward pass.
+    Builds the [N, 3] input tensor [x, alpha, T] expected by the Phase 4
+    model and runs a single forward pass.
 
     Args:
         alpha_1:  Z=1 reduced dimensionless cell radius
         T_1_keV:  Z=1 reduced temperature [keV]
         x_grid:   1D numpy array of x values in (0, 1], shape [n_x]
         model:    loaded PINN (from load_pinn)
-        device:   torch device string
+        device:   torch device
 
     Returns:
-        phi: 1D numpy array, shape [n_x]
+        phi: 1D numpy array, shape [n_x], values of phi(x)
     """
     n = len(x_grid)
     alpha_col = np.full(n, alpha_1, dtype=np.float32)
     T_col     = np.full(n, T_1_keV, dtype=np.float32)
     inputs_np = np.stack([x_grid.astype(np.float32), alpha_col, T_col], axis=1)
 
-    inputs_t = torch.from_numpy(inputs_np).to(device)
+    inputs_t = torch.from_numpy(inputs_np).to(device).requires_grad_(True)
 
     phi_t = model(inputs_t)
 
-    return phi_t.cpu().numpy().reshape(-1)
+    return phi_t.detach().cpu().numpy().reshape(-1)
