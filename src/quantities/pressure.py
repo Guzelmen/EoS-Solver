@@ -32,7 +32,7 @@ import math
 import torch
 
 from ..fd_integrals import fermi_dirac_three_half, C0_M
-from ..inputs import KC, KEV_TO_J
+from ..inputs import KC, KEV_TO_J, C1
 
 # ---------------------------------------------------------------------------
 # Pressure prefactor
@@ -43,7 +43,11 @@ from ..inputs import KC, KEV_TO_J
 # P [Pa] = C_PRESSURE * T_1_keV^(5/2) * F_{3/2}(xi_1)
 C_PRESSURE_OLD = 1e6 / (6.0 * math.pi * C0_M**2)
 
-C_PRESSURE = KEV_TO_J**2 / (6.0 * math.pi * KC * C0_M**2)
+C_PRESSURE_CGSWEIRD = KEV_TO_J**2 / (6.0 * math.pi * KC * C0_M**2)
+
+C_PRESSURE_QEOS = (2/3) * C1 * KEV_TO_J**(2.5)
+
+C_PRESSURE = KEV_TO_J / (6.0 * math.pi * 0.0899 * C0_M**3)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +87,7 @@ def compute_pressure(
     F32 = float(fermi_dirac_three_half(xi_tensor).item())
 
     # Z=1 pressure [Pa]
-    P_e1 = C_PRESSURE * T_1_keV**2.5 * F32
+    P_e1 = C_PRESSURE_QEOS * T_1_keV**2.5 * F32
 
     # Scale to physical Z [Pa]
     P_e = Z**(10.0 / 3.0) * P_e1
