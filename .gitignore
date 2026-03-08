@@ -2,3 +2,4 @@ __pycache__/
 hpc_run_logs/
 pbs_scripts/
 plots/
+configs/
