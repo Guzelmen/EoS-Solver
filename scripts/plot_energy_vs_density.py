@@ -10,6 +10,7 @@ Pipeline per (rho, T) point:
     -> xi(x) on full grid -> K_1, U_en_1, U_ee_1 (virial) -> E_e [erg/g]
 """
 
+import argparse
 import sys
 import yaml
 import numpy as np
@@ -52,10 +53,31 @@ COLORS    = ["steelblue", "darkorange", "forestgreen"]
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    parser = argparse.ArgumentParser(description="E vs density plot for aluminium.")
+    parser.add_argument("--config", type=str, default=None,
+                        help="Path to EoS config yaml. Defaults to configs/default.yaml.")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Output path for the figure. Defaults to plots/<run_name>/energy/...")
+    args = parser.parse_args()
+
     # Load config and model
-    cfg_path = REPO_ROOT / "configs" / "default.yaml"
+    cfg_path = Path(args.config) if args.config else REPO_ROOT / "configs" / "default.yaml"
     with open(cfg_path) as f:
         cfg = yaml.safe_load(f)
+
+    print("--- Config ---")
+    for k, v in cfg.items():
+        print(f"  {k}: {v}")
+    print("--------------")
+
+    # Build output path from run_name / epoch if not explicitly provided
+    if args.output is None:
+        run_name = cfg.get("run_name", "default")
+        epoch    = cfg.get("epoch", None)
+        tag      = f"{run_name}_epoch_{epoch}" if epoch is not None else run_name
+        out_path = REPO_ROOT / "plots" / tag / "energy" / "plot_e_erg_g_vs_density_al.png"
+    else:
+        out_path = Path(args.output)
 
     device = cfg.get("device", "cpu")
     model, params = load_pinn(cfg, device)
@@ -122,8 +144,7 @@ def main():
     ax.grid(True, which="both", ls="--", alpha=0.4)
     fig.tight_layout()
 
-    out_path = REPO_ROOT / "plots" / "energy" / "plot_e_erg_g_vs_density_al.png"
-    out_path.parent.mkdir(exist_ok=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150)
     print(f"Saved: {out_path}")
     plt.show()

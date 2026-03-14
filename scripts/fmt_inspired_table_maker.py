@@ -35,7 +35,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.model_loader import load_eos_config, load_pinn, build_x_grid, predict_phi
-from src.inputs import z_scale_inputs, compute_gamma, compute_lambda, compute_xi, r0_from_density, B_M, KEV_TO_J
+from src.inputs import z_scale_inputs, compute_gamma, compute_lambda, compute_xi, compute_beta, r0_from_density, B_M, KEV_TO_J
 from src.quantities.pressure import compute_pressure, C_PRESSURE_QEOS
 from src.quantities.internal_energy import compute_kinetic_energy
 
@@ -84,6 +84,8 @@ def compute_dimensionless(
     phi   = predict_phi(alpha_1, T_1, x_grid, model, device)
 
     # 4. FD argument on full grid; boundary value
+    beta = compute_beta(phi, gamma)
+    beta_b = float(beta[-1])
     xi    = compute_xi(phi, x_grid, gamma, lam)
     xi_1  = float(xi[-1])
 
@@ -118,7 +120,8 @@ def compute_dimensionless(
         "Pv_kTZ":   Pv_kTZ,
         "Ekin_kTZ": Ekin_kTZ,
         "Epot_kTZ": Epot_kTZ,
-        "P_e_mbar": p_result["P_e"] / 1e11
+        "P_e_mbar": p_result["P_e"] / 1e11,
+        "beta_b":   beta_b
     }
 
 
@@ -164,6 +167,10 @@ def main():
 
     # Load model
     cfg    = load_eos_config(args.config)
+    print("--- Config ---")
+    for k, v in cfg.items():
+        print(f"  {k}: {v}")
+    print("--------------")
     device = cfg.get("device", "cpu")
     print("Loading PINN...")
     model, _ = load_pinn(cfg)
@@ -193,20 +200,21 @@ def main():
             model  = model,
             device = device,
         )
-        rows.append((i + 1, rho, T, result["Pv_kTZ"], result["Ekin_kTZ"], result["Epot_kTZ"], result ["P_e_mbar"], result["T_1"], result["alpha_1"]))
+        rows.append((i + 1, rho, T, result["beta_b"], result["Pv_kTZ"], result["Ekin_kTZ"], result["Epot_kTZ"], result ["P_e_mbar"], result["T_1"], result["alpha_1"]))
 
     # Print table
-    col_w = [6, 12, 12, 12, 12, 12, 12, 12, 12]
+    col_w = [6, 12, 12, 12, 12, 12, 12, 12, 12, 12]
     header = (
         f"{'Case':>{col_w[0]}}"
         f"{'rho (g/cc)':>{col_w[1]}}"
         f"{'T (keV)':>{col_w[2]}}"
-        f"{'Pv/kTZ':>{col_w[3]}}"
-        f"{'Ekin/kTZ':>{col_w[4]}}"
-        f"{'Epot/kTZ':>{col_w[5]}}"
-        f"{"P (Mbar)":>{col_w[6]}}"
-        f"{'T_1 (keV)':>{col_w[7]}}"
-        f"{'alpha_1':>{col_w[8]}}"
+        f"{'Beta_b':>{col_w[3]}}"
+        f"{'Pv/kTZ':>{col_w[4]}}"
+        f"{'Ekin/kTZ':>{col_w[5]}}"
+        f"{'Epot/kTZ':>{col_w[6]}}"
+        f"{"P (Mbar)":>{col_w[7]}}"
+        f"{'T_1 (keV)':>{col_w[8]}}"
+        f"{'alpha_1':>{col_w[9]}}"
     )
     separator = "-" * sum(col_w)
 
@@ -216,17 +224,18 @@ def main():
     print(header)
     print(separator)
 
-    for case, rho, T, pv, ek, ep, pmbar, t1, a1 in rows:
+    for case, rho, T, beta_b, pv, ek, ep, pmbar, t1, a1 in rows:
         print(
             f"{case:>{col_w[0]}}"
             f"{rho:>{col_w[1]}.4f}"
             f"{T:>{col_w[2]}.4f}"
-            f"{pv:>{col_w[3]}.4f}"
-            f"{ek:>{col_w[4]}.4f}"
-            f"{ep:>{col_w[5]}.4f}"
-            f"{pmbar:>{col_w[6]}.4f}"
-            f"{t1:>{col_w[7]}.4f}"
-            f"{a1:>{col_w[8]}.4f}"
+            f"{beta_b:>{col_w[3]}.4f}"
+            f"{pv:>{col_w[4]}.4f}"
+            f"{ek:>{col_w[5]}.4f}"
+            f"{ep:>{col_w[6]}.4f}"
+            f"{pmbar:>{col_w[7]}.4f}"
+            f"{t1:>{col_w[8]}.4f}"
+            f"{a1:>{col_w[9]}.4f}"
         )
 
     print(separator)

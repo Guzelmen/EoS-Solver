@@ -162,7 +162,11 @@ def compute_xi(phi: np.ndarray, x: np.ndarray,
     """
     return gamma * phi / (lam * x)
 
-
+def compute_beta(phi: np.ndarray, gamma: float) -> np.ndarray:
+    """
+    Compute beta(b) = gamma * phi(x).
+    """
+    return gamma * phi
 # for density stuff
 
 # ---------------------------------------------------------------------------
@@ -197,6 +201,15 @@ def r0_from_density(rho_gcc: float, A: float) -> float:
     volume = A * M_PROTON / rho_si                  # [m^3/atom]
     return (volume * 3.0 / (4.0 * math.pi))**(1.0 / 3.0)
 
+def density_from_alpha(alpha: float, A: float) -> float:
+    """
+    
+    """
+    r0 = r0_from_alpha(alpha)
+    volume = 4.0 / 3.0 * math.pi * r0**3.0
+    rho_si = A * M_PROTON / volume
+    rho_gcc = rho_si / 1e3                          # [kg/m^3]
+    return rho_gcc
 
 def density_from_r0(r0_m: float, A: float) -> float:
     """

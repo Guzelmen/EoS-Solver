@@ -81,8 +81,8 @@ def parse_args():
         help="Path to EoS config yaml. Defaults to configs/default.yaml.",
     )
     parser.add_argument(
-        "--output", type=str, default="plots/P_vs_rho_Al.png",
-        help="Output path for the figure.",
+        "--output", type=str, default=None,
+        help="Output path for the figure. Defaults to plots/<run_name>/pressure/P_vs_rho_Al.png.",
     )
     parser.add_argument(
         "--n_rho", type=int, default=N_RHO,
@@ -100,8 +100,21 @@ def main():
 
     # ------------------------------------------------------------------ setup
     cfg = load_eos_config(args.config)
+    print("--- Config ---")
+    for k, v in cfg.items():
+        print(f"  {k}: {v}")
+    print("--------------")
     n_x   = cfg.get("n_x",   512)
     x_min = cfg.get("x_min", 1e-4)
+
+    # Build output path from run_name / epoch if not explicitly provided
+    if args.output is None:
+        run_name = cfg.get("run_name", "default")
+        epoch    = cfg.get("epoch", None)
+        tag      = f"{run_name}_epoch_{epoch}" if epoch is not None else run_name
+        out_path = Path("plots") / tag / "pressure" / "P_vs_rho_Al.png"
+    else:
+        out_path = Path(args.output)
 
     print("Loading PINN...")
     model, _ = load_pinn(cfg)
@@ -181,7 +194,6 @@ def main():
     fig.tight_layout()
 
     # Save
-    out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=300)
     print(f"\nSaved figure: {out_path}")
