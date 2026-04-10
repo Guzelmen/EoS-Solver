@@ -173,7 +173,7 @@ def main():
     print("--------------")
     device = cfg.get("device", "cpu")
     print("Loading PINN...")
-    model, _ = load_pinn(cfg)
+    model, _ = load_pinn(cfg, verbose=True)
 
     # Build x grid once — same for all cases
     x_grid = build_x_grid(args.n_x, args.x_min)

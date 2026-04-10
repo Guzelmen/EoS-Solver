@@ -97,7 +97,7 @@ def find_state_path_for_epoch(pinn_repo_path: str, run_name: str, epoch: int) ->
 # PINN loading
 # ---------------------------------------------------------------------------
 
-def load_pinn(cfg: dict = None, config_path: str = None, device: str = None):
+def load_pinn(cfg: dict = None, config_path: str = None, device: str = None, verbose: bool = False):
     """
     Load the trained Phase 4 PINN.
 
@@ -152,6 +152,24 @@ def load_pinn(cfg: dict = None, config_path: str = None, device: str = None):
     # 3. Load weights and build model
     state_dict = torch.load(state_path, map_location=torch_device)
     model = build_model(cfg["pinn_repo_path"], params, state_dict, torch_device)
+
+    # Diagnostic: confirm norm-stat buffers loaded from checkpoint
+    _loaded = model.state_dict()
+    _keys = ["a_mean", "a_std", "T_mean", "T_std", "x_log_mean", "x_log_std"]
+    _vals = {k: float(_loaded[k].item()) for k in _keys if k in _loaded}
+    _missing = [k for k in _keys if k not in _loaded]
+    if verbose:
+        print("[load_pinn] Norm-stat buffers after load:")
+        for k, v in _vals.items():
+            print(f"  {k} = {v:.6g}")
+    if _missing:
+        print(f"[load_pinn] WARNING: norm buffers absent from model: {_missing}")
+    _defaults = {"a_mean": 0.0, "a_std": 1.0, "T_mean": 0.0, "T_std": 1.0,
+                 "x_log_mean": 0.0, "x_log_std": 1.0}
+    _suspicious = [k for k, v in _vals.items() if abs(v - _defaults.get(k, float("nan"))) < 1e-9]
+    if _suspicious:
+        print(f"[load_pinn] WARNING: these buffers still hold YAML defaults "
+              f"(checkpoint may not contain them): {_suspicious}")
 
     # Gradients must stay enabled — the hard-constraint BC transform in the
     # model's forward pass uses first_deriv_auto (autograd), so torch.no_grad()

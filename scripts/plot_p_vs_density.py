@@ -35,6 +35,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import time
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -61,11 +62,11 @@ A_AL = 27   # atomic mass number — only used for density <-> r0 conversion
 # ---------------------------------------------------------------------------
 T_VALUES_KEV  = [1, 10, 100]    # physical temperatures [keV]
 N_RHO         = 60                          # number of density points
-RHO_MIN       = 0.1                         # [g/cm^3]
-RHO_MAX       = 10.0                        # [g/cm^3]
+RHO_MIN       = 0.2                         # [g/cm^3]
+RHO_MAX       = 50.0                        # [g/cm^3]
 
 # Colour cycle for the 4 temperature lines
-COLOURS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+COLOURS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +113,7 @@ def main():
         run_name = cfg.get("run_name", "default")
         epoch    = cfg.get("epoch", None)
         tag      = f"{run_name}_epoch_{epoch}" if epoch is not None else run_name
-        out_path = Path("plots") / tag / "pressure" / "P_vs_rho_Al.png"
+        out_path = Path("plots") / tag / "pressure" / "P_vs_rho_Al_3T_noshift.png"
     else:
         out_path = Path(args.output)
 
@@ -122,6 +123,14 @@ def main():
 
     # Log-spaced density grid in physical space [g/cm^3]
     rho_grid = np.logspace(np.log10(RHO_MIN), np.log10(RHO_MAX), args.n_rho)
+
+    # Print alpha_1 range once (alpha_1 depends only on rho, not T)
+    _r0_min = r0_from_density(RHO_MIN, A_AL)
+    _r0_max = r0_from_density(RHO_MAX, A_AL)
+    _alpha1_at_rho_min, _ = z_scale_inputs(Z_AL, _r0_min, T_VALUES_KEV[0])
+    _alpha1_at_rho_max, _ = z_scale_inputs(Z_AL, _r0_max, T_VALUES_KEV[0])
+    print(f"Density range [{RHO_MIN}, {RHO_MAX}] g/cm^3  ->  "
+          f"alpha_1 in [{_alpha1_at_rho_max:.4g}, {_alpha1_at_rho_min:.4g}]")
 
     # x grid is the same for every (rho, T) point
     x_grid = build_x_grid(n_x, x_min)
@@ -137,6 +146,7 @@ def main():
 
         P_mbar_list = []
         rho_list    = []
+        pressure_total_s = 0.0
 
         for rho in rho_grid:
             # 1. density -> physical cell radius
@@ -155,23 +165,26 @@ def main():
             # phi[-1] is phi at x=1 (boundary); this is what enters pressure
             phi_boundary = (float(phi[-1]) if len(phi) == 1 else None)
 
-
             if phi_boundary < 0:
                 print(f"  [info] phi(1) = {phi_boundary:.4g} < 0 at rho={rho:.3g} g/cm^3 "
                       f"(xi_1={gamma*phi_boundary/lam:.4g}, classical regime)")
 
             # 5. Electron pressure [Pa] -> [Mbar]
+            _t0 = time.perf_counter()
             result  = compute_pressure(phi_boundary, T_1, gamma, lam, Z=Z_AL)
             P_mbar  = pa_to_mbar(result["P_e"])
+            pressure_total_s += time.perf_counter() - _t0
 
             rho_list.append(rho)
             P_mbar_list.append(P_mbar)
 
         results[T_phys] = (np.array(rho_list), np.array(P_mbar_list))
-        print(f"  P range: [{P_mbar_list[0]:.3e}, {P_mbar_list[-1]:.3e}] Mbar")
+        print(f"  P range: [{P_mbar_list[0]:.3e}, {P_mbar_list[-1]:.3e}] Mbar  "
+              f"(pressure compute: {pressure_total_s*1e3:.1f} ms total, "
+              f"{pressure_total_s/len(rho_grid)*1e3:.3f} ms/point)")
 
     # ------------------------------------------------------------------- plot
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(figsize=(5, 5))
 
     for (T_phys, colour) in zip(T_VALUES_KEV, COLOURS):
         rho_arr, P_arr = results[T_phys]
@@ -186,9 +199,13 @@ def main():
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel(r"Density $\rho$ (g/cm$^3$)", fontsize=12)
-    ax.set_ylabel(r"Electron Pressure $P_e$ (Mbar)", fontsize=12)
-    ax.set_title("Thomas-Fermi Electron EoS — Aluminium (Z=13, A=27)", fontsize=11)
+    #ax.set_xlim(1e-4, 1e2)
+    #ax.set_ylim(1e-9, 1e6)
+    ax.set_xlabel(r"$\rho$ (g/cm$^3$)", fontsize=16)
+    ax.set_ylabel(r" $P_e$ (Mbar)", fontsize=16)
+    #ax.set_yticks([1e-9, 1e-6, 1e-3, 1e0, 1e3, 1e6])
+    #ax.set_xticks([1e-4, 1e-2, 1e0, 1e2])
+    ax.tick_params(axis="both", labelsize=12)
     ax.legend(fontsize=10)
     ax.grid(True, which="both", alpha=0.3)
     fig.tight_layout()
