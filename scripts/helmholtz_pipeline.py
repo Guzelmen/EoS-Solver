@@ -36,6 +36,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.model_loader import load_eos_config, load_pinn, build_x_grid
@@ -107,6 +108,8 @@ def run_pipeline(
                         preserved; torch.autograd.grad(F_phys_t, inputs_t) works.
       use_graph=False — detach / no_grad applied at every opportunity for speed.
     """
+
+    print(f"PyTorch threads: {torch.get_num_threads()}")
     # Resolve device and graph mode
     # Device comes from CLI (device_override); config no longer carries a device key.
     target_device = device_override or "cpu"
@@ -155,6 +158,11 @@ def run_pipeline(
     model, _params = load_pinn(cfg, device=target_device, verbose=True)
     model.eval()
 
+    print(f"[model] class      : {type(model).__name__}")
+    print(f"[model] phase      : {getattr(_params, 'phase', 'n/a')}")
+    print(f"[model] n_layers   : {getattr(_params, 'nlayers', 'n/a')}")
+    print(f"[model] hidden_dim : {getattr(_params, 'hidden', 'n/a')}")
+
     timing["Model load"] = _tock(t0, target_device)
 
     # ------------------------------------------------------------------
@@ -170,12 +178,18 @@ def run_pipeline(
     # first_deriv_auto internally (hard BC transform), which requires a grad-enabled input.
     inputs_t = torch.from_numpy(inputs_np).to(target_device).requires_grad_(True)
 
+    print(f"model.training = {model.training}")
+    print(f"grad enabled = {torch.is_grad_enabled()}")
+
     phi_t = model(inputs_t)              # shape [N_X, 1] or [N_X]
     phi_t = phi_t.reshape(-1)            # [N_X]
     if not use_graph:
         # Detach after forward: graph not needed downstream, free the memory.
         phi_t = phi_t.detach()
     timing["Network forward (phi)"] = _tock(t0, target_device)
+
+    print(f"model.training = {model.training}")
+    print(f"grad enabled = {torch.is_grad_enabled()}")
 
     # ------------------------------------------------------------------
     # Stage 5: FD argument xi(x)

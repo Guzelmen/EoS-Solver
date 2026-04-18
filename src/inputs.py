@@ -227,3 +227,35 @@ def density_from_r0(r0_m: float, A: float) -> float:
     volume = (4.0 / 3.0) * math.pi * r0_m**3       # [m^3]
     rho_si = A * M_PROTON / volume                  # [kg/m^3]
     return rho_si * 1e-3                            # [g/cm^3]
+
+
+
+
+# ---------------------------------------------------------------------------
+# Torch-differentiable versions of z-scaling functions
+# (identical physics, accepts tensors, keeps autograd graph connected)
+# ---------------------------------------------------------------------------
+
+def r0_from_density_torch(rho_gcc: "torch.Tensor", A: float) -> "torch.Tensor":
+    """Cell radius from density [g/cm³] — differentiable torch version."""
+    import torch
+    rho_si = rho_gcc * 1e3                              # [kg/m³]
+    volume = A * M_PROTON / rho_si                      # [m³/atom]
+    return (volume * (3.0 / (4.0 * math.pi))) ** (1.0 / 3.0)
+
+
+def z_scale_inputs_torch(Z: float, r0: "torch.Tensor", T_keV: "torch.Tensor"):
+    """Z=1 reduced (alpha_1, T_1) — differentiable torch version."""
+    alpha_1 = Z ** (1.0 / 3.0) * r0 / B_M
+    T_1     = T_keV / Z ** (4.0 / 3.0)
+    return alpha_1, T_1
+
+
+def compute_gamma_torch(T_1_keV: "torch.Tensor", Z_model: float = 1.0) -> "torch.Tensor":
+    """gamma = 0.0899 * Z_model / T_1^(3/4) — differentiable torch version."""
+    return 0.0899 * Z_model / T_1_keV ** 0.75
+
+
+def compute_lambda_torch(alpha_1: "torch.Tensor", T_1_keV: "torch.Tensor") -> "torch.Tensor":
+    """lam = alpha_1 * b * T_1^(1/4) / C0 — differentiable torch version."""
+    return alpha_1 * B_M * T_1_keV ** 0.25 / C0_M
